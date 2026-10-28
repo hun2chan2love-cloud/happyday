@@ -112,7 +112,11 @@ details.memo[open] summary::after{content:"접기"}
 
 /* 기억할 것 */
 .lined{background-color:var(--sheet);background-image:repeating-linear-gradient(transparent 0 43px,var(--rule) 43px 44px);background-attachment:local}
-.remember textarea{width:100%;min-height:132px;border:0;resize:vertical;padding:0 12px;font-family:var(--f-hand);font-size:1.4rem;line-height:44px;color:var(--ink);background:transparent;display:block}
+.rem .edit,.rem .add input{font-family:var(--f-hand);font-size:1.4rem;line-height:1.2}
+.rem .row{padding-left:12px}
+.carry{display:flex;align-items:center;gap:5px;font-size:.72rem;color:var(--ink-soft);flex-shrink:0;cursor:pointer;margin-left:auto}
+.carry input{width:20px;height:20px;accent-color:var(--blue);margin:0;cursor:pointer}
+.carry:has(input:checked){color:var(--blue)}
 .hint{font-size:.78rem;color:var(--ink-soft);margin:6px 2px 0}
 
 /* 습관표 */
@@ -180,7 +184,10 @@ table.habit{width:100%;border-collapse:collapse;font-size:.85rem}
 
   <section class="sec remember">
     <h2>기억할 것</h2>
-    <div class="box lined"><textarea id="remember" aria-label="기억할 것" placeholder="오늘을 마무리하며…"></textarea></div>
+    <div class="box">
+      <ul class="rows rem" id="rems"></ul>
+      <form class="add" id="remForm"><input id="remIn" placeholder="+ 기억할 것 쓰기" aria-label="기억할 것 추가" autocomplete="off"><button>추가</button></form>
+    </div>
   </section>
 
   <section class="sec">
@@ -220,7 +227,18 @@ DB.meta=DB.meta||{};DB.meta.exported=DB.meta.exported||{};
 function persist(){try{localStorage.setItem(KEY,JSON.stringify(DB));}catch(e){}Drive.schedule();}
 
 let cur=todayKey();
-function day(k=cur,create){let d=DB.days[k];if(!d&&create){d=DB.days[k]={tasks:[],thanks:[],remember:"",u:0};}return d||{tasks:[],thanks:[],remember:"",u:0};}
+/* 기억할 것: [{id,t,c}] — c가 체크되면 다음 날 할 일로 들어감 (예전 글 형식은 줄 단위로 바꿈) */
+function norm(d){if(d&&!Array.isArray(d.remember))d.remember=String(d.remember||"").split("\n").map(t=>t.trim()).filter(Boolean).map(t=>({id:uid(),t,c:0}));return d;}
+function normAll(db){for(const k in (db.days||{}))norm(db.days[k]);return db;}
+normAll(DB);
+function day(k=cur,create){let d=DB.days[k];if(!d&&create){d=DB.days[k]={tasks:[],thanks:[],remember:[],u:0};}return d||{tasks:[],thanks:[],remember:[],u:0};}
+/* 체크한 기억할 것 ↔ 다음 날 할 일 연결 */
+function syncCarry(k,item){
+  const nk=addDays(k,1), nd=day(nk,true), i=nd.tasks.findIndex(t=>t.from===item.id);
+  if(item.c&&item.t){if(i<0)nd.tasks.push({id:uid(),t:item.t,s:"",from:item.id});else nd.tasks[i].t=item.t;}
+  else if(i>=0)nd.tasks.splice(i,1);
+  nd.u=Date.now();
+}
 function touchDay(k=cur){const d=day(k,true);d.u=Date.now();persist();}
 /* 주 기록: 아직 없으면 지난 주에서 습관 목록과 '다음 주' 메모를 이어받은 기본값을 보여 주고,
    실제로 고칠 때 저장함 (미리 넘겨 본 주가 지난 주 변경을 놓치지 않도록) */
@@ -246,15 +264,15 @@ function render(){
   $("picker").value=cur;
   $("goToday").hidden=(cur===t);
   $("week").innerHTML=WD.map((w,i)=>{const k=addDays(m,i);const dd=DB.days[k];
-    const real=dd&&(dd.tasks.length||dd.thanks.length||dd.remember);
+    const real=dd&&(dd.tasks.length||dd.thanks.length||dd.remember.length);
     return `<button type="button" data-k="${k}" class="${k===cur?"sel":""} ${real?"real":""}" ${k===t?'aria-current="date"':""}>${w}<b>${parse(k).getDate()}</b></button>`}).join("");
   const wk=week(m);
   $("mThis").value=wk.memoThis; $("mNext").value=wk.memoNext;
   $("peek").textContent=wk.memoThis?("이번 주: "+wk.memoThis.split("\n")[0]):"이번 주·다음 주 메모";
   const y=day(addDays(cur,-1));
-  $("yest").hidden=!y.remember.trim(); $("yestTxt").textContent=y.remember.trim();
+  const yt=y.remember.map(x=>x.t).join("\n"); $("yest").hidden=!yt; $("yestTxt").textContent=yt;
   renderTasks(); renderThanks();
-  $("remember").value=day().remember;
+  renderRems();
   renderHabit();
 }
 function renderTasks(){
@@ -265,6 +283,10 @@ function renderTasks(){
     :"";
   const c=k=>ts.filter(x=>x.s===k).length;
   $("tally").textContent=ts.length?`완료 ${c("done")} · 연기 ${c("later")} · 미완료 ${c("miss")} / ${ts.length}`:"";
+}
+function renderRems(){
+  $("rems").innerHTML=day().remember.map(x=>`<li class="row" data-id="${x.id}"><input class="edit" value="${esc(x.t)}" aria-label="기억할 것">
+    <label class="carry"><input type="checkbox" ${x.c?"checked":""}>내일 할 일</label></li>`).join("");
 }
 function renderThanks(){
   const th=day().thanks;
@@ -302,8 +324,15 @@ $("thanks").addEventListener("change",e=>{
   if(v)d.thanks[i]=v; else d.thanks.splice(i,1);
   touchDay(); renderThanks();
 });
-let remT; $("remember").addEventListener("input",e=>{clearTimeout(remT);remT=setTimeout(()=>{day(cur,true).remember=e.target.value;touchDay();},400);});
-$("remember").addEventListener("blur",e=>{clearTimeout(remT);if(day().remember!==e.target.value){day(cur,true).remember=e.target.value;touchDay();}});
+$("rems").addEventListener("change",e=>{
+  const d=day(cur,true), id=e.target.closest(".row").dataset.id, x=d.remember.find(r=>r.id===id);
+  if(e.target.type==="checkbox"){x.c=e.target.checked?1:0;syncCarry(cur,x);touchDay();
+    toast(x.c?"내일 할 일에 넣었어요":"내일 할 일에서 뺐어요");render();return;}
+  const v=e.target.value.trim();
+  if(v){x.t=v;}else{d.remember=d.remember.filter(r=>r.id!==id);x.c=0;}
+  if(x.c||!v)syncCarry(cur,x);
+  touchDay();render();
+});
 ["mThis","mNext"].forEach(id=>$(id).addEventListener("input",e=>{const w=weekEdit();w[id==="mThis"?"memoThis":"memoNext"]=e.target.value;touchWeek();
   if(id==="mThis")$("peek").textContent=w.memoThis?("이번 주: "+w.memoThis.split("\n")[0]):"이번 주·다음 주 메모";}));
 $("habit").addEventListener("click",e=>{
@@ -318,6 +347,7 @@ $("habit").addEventListener("change",e=>{
 function bindAdd(form,input,fn){$(form).addEventListener("submit",e=>{e.preventDefault();const v=$(input).value.trim();if(!v)return;fn(v);$(input).value="";});}
 bindAdd("taskForm","taskIn",v=>{day(cur,true).tasks.push({id:uid(),t:v,s:""});touchDay();renderTasks();render();$("taskIn").focus();});
 bindAdd("thxForm","thxIn",v=>{day(cur,true).thanks.push(v);touchDay();renderThanks();render();$("thxIn").focus();});
+bindAdd("remForm","remIn",v=>{day(cur,true).remember.push({id:uid(),t:v,c:0});touchDay();render();$("remIn").focus();});
 bindAdd("habitForm","habitIn",v=>{weekEdit().habits.push({id:uid(),n:v,c:[0,0,0,0,0,0,0]});touchWeek();renderHabit();});
 
 /* 좌우로 밀어서 날짜 이동 */
@@ -344,6 +374,7 @@ $("restore").onchange=async e=>{
 function merge(inc,preferInc,union){
   let changed=false;
   const cat=(x,y)=>!x?y:!y||x===y?x:(x.includes(y)?x:y.includes(x)?y:x+"\n"+y);
+  normAll(inc);
   for(const sec of ["days","weeks"]){for(const k in (inc[sec]||{})){const a=DB[sec][k],b=inc[sec][k];
     if(a&&union){
       /* 이 기기에서 드라이브에 처음 연결할 때: 어느 쪽 기록도 지우지 않고 합침 */
@@ -351,7 +382,7 @@ function merge(inc,preferInc,union){
       if(sec==="days"){
         b.tasks.forEach(t=>{if(!a.tasks.some(x=>x.id===t.id||x.t===t.t))a.tasks.push(t);});
         b.thanks.forEach(t=>{if(!a.thanks.includes(t))a.thanks.push(t);});
-        a.remember=cat(a.remember,b.remember);
+        b.remember.forEach(t=>{if(!a.remember.some(x=>x.id===t.id||x.t===t.t))a.remember.push(t);});
       }else{
         b.habits.forEach(h=>{const x=a.habits.find(x=>x.n===h.n);if(x)x.c=x.c.map((v,i)=>v||h.c[i]?1:0);else a.habits.push(h);});
         a.memoThis=cat(a.memoThis,b.memoThis);a.memoNext=cat(a.memoNext,b.memoNext);
@@ -374,7 +405,7 @@ async function weekXlsx(m){
     rows.push([`${WD[i]}요일  ${dt.getMonth()+1}/${dt.getDate()}`]);
     if(d.tasks.length)d.tasks.forEach(t=>rows.push(["",`${t.s==="done"?"☑":"☐"} ${t.t}`,LBL[t.s]||""]));else rows.push(["","(할 일 없음)"]);
     rows.push(["감사 일기",d.thanks.map((x,j)=>`${j+1}. ${x}`).join("\n")]);
-    rows.push(["기억할 것",d.remember||""]);rows.push([]);
+    rows.push(["기억할 것",d.remember.map(x=>(x.c?"→ ":"")+x.t).join("\n")]);rows.push([]);
   }
   rows.push(["습관",...WD]);
   (w.habits||[]).forEach(h=>rows.push([h.n,...h.c.map(v=>v?"○":"")]));
