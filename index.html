@@ -107,15 +107,18 @@ details.memo[open] summary::after{content:"접기"}
 /* 감사일기 */
 .thanks{counter-reset:t}
 .thanks .row{counter-increment:t;padding-left:12px}
-.thanks .row::before{content:counter(t);font-family:var(--f-display);color:var(--blue);width:1em;flex-shrink:0;align-self:flex-start;padding-top:6px}
+.thanks .row::before{content:counter(t);font-family:var(--f-display);color:var(--blue);width:1em;flex-shrink:0;align-self:flex-start;padding-top:9px}
 textarea.grow{resize:none;overflow:hidden;display:block;white-space:pre-wrap;word-break:keep-all;overflow-wrap:anywhere}
-#thxForm textarea{flex:1;min-width:0;border:0;background:transparent;color:var(--ink);font-family:var(--f-hand);font-size:1.4rem;line-height:1.2;padding:4px 0}
-#thxForm textarea::placeholder{color:var(--ink-soft)}
-.thanks .edit,.thanks .add input{font-family:var(--f-hand);font-size:1.4rem;line-height:1.2}
+.add textarea{flex:1;min-width:0;border:0;background:transparent;color:var(--ink);font:inherit;line-height:1.5;padding:4px 0}
+.add textarea::placeholder{color:var(--ink-soft)}
+textarea.edit{line-height:1.5}
+.thanks .edit,#thxForm textarea{font-family:var(--f-hand);font-size:1.4rem;line-height:1.5}
 
 /* 기억할 것 */
 .lined{background-color:var(--sheet);background-image:repeating-linear-gradient(transparent 0 43px,var(--rule) 43px 44px);background-attachment:local}
-.rem .edit,.rem .add input{font-family:var(--f-hand);font-size:1.4rem;line-height:1.2}
+.rem .edit,#remForm textarea{font-family:var(--f-hand);font-size:1.4rem;line-height:1.5}
+.row.long .edit{flex-basis:100%}
+.row.long{padding-bottom:8px}
 .rem .row{padding-left:12px}
 .carry{display:flex;align-items:center;gap:5px;font-size:.72rem;color:var(--ink-soft);flex-shrink:0;cursor:pointer;margin-left:auto}
 .carry input{width:20px;height:20px;accent-color:var(--blue);margin:0;cursor:pointer}
@@ -180,7 +183,7 @@ table.habit{width:100%;border-collapse:collapse;font-size:.85rem}
     <h2>오늘 할 일 <span class="tally" id="tally"></span></h2>
     <div class="box">
       <ul class="rows" id="tasks"></ul>
-      <form class="add" id="taskForm"><input id="taskIn" placeholder="할 일 추가" aria-label="할 일 추가" autocomplete="off"><button>추가</button></form>
+      <form class="add" id="taskForm"><textarea id="taskIn" class="grow" rows="1" placeholder="할 일 추가" aria-label="할 일 추가"></textarea><button>추가</button></form>
     </div>
   </section>
 
@@ -196,7 +199,7 @@ table.habit{width:100%;border-collapse:collapse;font-size:.85rem}
     <h2>기억할 것</h2>
     <div class="box">
       <ul class="rows rem" id="rems"></ul>
-      <form class="add" id="remForm"><input id="remIn" placeholder="+ 기억할 것 쓰기" aria-label="기억할 것 추가" autocomplete="off"><button>추가</button></form>
+      <form class="add" id="remForm"><textarea id="remIn" class="grow" rows="1" placeholder="+ 기억할 것 쓰기" aria-label="기억할 것 추가"></textarea><button>추가</button></form>
     </div>
   </section>
 
@@ -289,27 +292,38 @@ function render(){
   const yt=y.remember.map(x=>x.t).join("\n"); $("yest").hidden=!yt; $("yestTxt").textContent=yt;
   renderTasks(); renderThanks();
   renderRems();
+  requestAnimationFrame(fitAll);
   renderHabit();
 }
 function renderTasks(){
   const ts=day().tasks;
   $("tasks").innerHTML=ts.length?ts.map(x=>`<li class="row task" data-id="${x.id}" data-s="${x.s||""}">
-    <input class="edit" value="${esc(x.t)}" aria-label="할 일">
+    <textarea class="edit grow" rows="1" aria-label="할 일">${esc(x.t)}</textarea>
     <span class="seg" role="group" aria-label="상태">${["done","miss","later"].map(v=>`<button type="button" data-v="${v}" aria-pressed="${x.s===v}">${LBL[v]}</button>`).join("")}</span></li>`).join("")
     :"";
   const c=k=>ts.filter(x=>x.s===k).length;
+  requestAnimationFrame(fitAll);
   $("tally").textContent=ts.length?`완료 ${c("done")} · 연기 ${c("later")} · 미완료 ${c("miss")} / ${ts.length}`:"";
 }
 function renderRems(){
-  $("rems").innerHTML=day().remember.map(x=>`<li class="row" data-id="${x.id}"><input class="edit" value="${esc(x.t)}" aria-label="기억할 것">
+  $("rems").innerHTML=day().remember.map(x=>`<li class="row" data-id="${x.id}"><textarea class="edit grow" rows="1" aria-label="기억할 것">${esc(x.t)}</textarea>
     <label class="carry"><input type="checkbox" ${x.c?"checked":""}>내일 할 일</label></li>`).join("");
 }
 /* 감사일기: 길어지면 줄이 늘어나며 다 보이게 */
-function fit(t){t.style.height="auto";t.style.height=t.scrollHeight+"px";}
+function fit(t){
+  const size=()=>{t.style.height="auto";t.style.height=t.scrollHeight+"px";};
+  const row=t.closest(".task,.rem .row");
+  if(row&&t.classList.contains("edit")){
+    /* 글이 길어 옆 버튼 때문에 2줄을 넘으면, 버튼을 아래로 내려 글이 넓게 2줄로 보이게 */
+    row.classList.remove("long");size();
+    const lh=parseFloat(getComputedStyle(t).lineHeight)||24;
+    if(t.scrollHeight>lh*2+10){row.classList.add("long");size();}
+  }else size();
+}
 document.addEventListener("input",e=>{if(e.target.classList&&e.target.classList.contains("grow"))fit(e.target);});
 document.addEventListener("keydown",e=>{
   if(e.key!=="Enter"||e.shiftKey||e.isComposing||!(e.target.classList&&e.target.classList.contains("grow")))return;
-  e.preventDefault(); if(e.target.id==="thxIn")$("thxForm").requestSubmit(); else e.target.blur();
+  e.preventDefault(); const f=e.target.closest("form.add"); if(f)f.requestSubmit(); else e.target.blur();
 });
 function renderThanks(){
   const th=day().thanks;
@@ -380,9 +394,12 @@ function answerHabits(keep){
 }
 $("askKeep").onclick=()=>answerHabits(true);
 $("askNew").onclick=()=>answerHabits(false);
-function bindAdd(form,input,fn){$(form).addEventListener("submit",e=>{e.preventDefault();const v=$(input).value.trim();if(!v)return;fn(v);$(input).value="";});}
+function bindAdd(form,input,fn){$(form).addEventListener("submit",e=>{e.preventDefault();const v=$(input).value.replace(/\s*\n\s*/g," ").trim();if(!v)return;fn(v);$(input).value="";fit($(input));});}
+function fitAll(){document.querySelectorAll("textarea.grow").forEach(fit);}
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fitAll);
+window.addEventListener("resize",()=>{clearTimeout(fitAll.t);fitAll.t=setTimeout(fitAll,150);});
 bindAdd("taskForm","taskIn",v=>{day(cur,true).tasks.push({id:uid(),t:v,s:""});touchDay();renderTasks();render();$("taskIn").focus();});
-bindAdd("thxForm","thxIn",v=>{day(cur,true).thanks.push(v.replace(/\s*\n\s*/g," "));touchDay();renderThanks();render();fit($("thxIn"));$("thxIn").focus();});
+bindAdd("thxForm","thxIn",v=>{day(cur,true).thanks.push(v);touchDay();render();$("thxIn").focus();});
 bindAdd("remForm","remIn",v=>{day(cur,true).remember.push({id:uid(),t:v,c:0});touchDay();render();$("remIn").focus();});
 bindAdd("habitForm","habitIn",v=>{weekEdit().habits.push({id:uid(),n:v,c:[0,0,0,0,0,0,0]});touchWeek();renderHabit();});
 
