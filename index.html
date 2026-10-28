@@ -179,13 +179,12 @@ table.habit{width:100%;border-collapse:collapse;font-size:.85rem}
   </section>
 
   <section class="sec remember">
-    <h2>기억할 것 <span>하루 마무리</span></h2>
+    <h2>기억할 것</h2>
     <div class="box lined"><textarea id="remember" aria-label="기억할 것" placeholder="오늘을 마무리하며…"></textarea></div>
-    <p class="hint">여기 적은 내용은 다음 날 화면 위쪽에 다시 보여요.</p>
   </section>
 
   <section class="sec">
-    <h2>이번 주 습관 <span>목록은 다음 주로 이어져요</span></h2>
+    <h2>이번 주 습관</h2>
     <div class="box habit-wrap"><table class="habit" id="habit"></table></div>
     <form class="add" id="habitForm" style="padding-inline:2px"><input id="habitIn" placeholder="+ 습관 추가" aria-label="습관 추가" autocomplete="off"><button>추가</button></form>
   </section>
@@ -263,7 +262,7 @@ function renderTasks(){
   $("tasks").innerHTML=ts.length?ts.map(x=>`<li class="row task" data-id="${x.id}" data-s="${x.s||""}">
     <input class="edit" value="${esc(x.t)}" aria-label="할 일">
     <span class="seg" role="group" aria-label="상태">${["done","miss","later"].map(v=>`<button type="button" data-v="${v}" aria-pressed="${x.s===v}">${LBL[v]}</button>`).join("")}</span></li>`).join("")
-    :`<li class="empty">아직 계획한 일이 없어요.</li>`;
+    :"";
   const c=k=>ts.filter(x=>x.s===k).length;
   $("tally").textContent=ts.length?`완료 ${c("done")} · 연기 ${c("later")} · 미완료 ${c("miss")} / ${ts.length}`:"";
 }
