@@ -136,6 +136,14 @@ table.habit{width:100%;border-collapse:collapse;font-size:.85rem}
 .habit td.name input{width:100%;border:0;background:transparent;font:inherit;color:inherit}
 .habit td.now{background:color-mix(in srgb,var(--marker) 55%,transparent)}
 .habit tr:last-child td{border-bottom:0}
+.shot-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;height:130px;border:1.5px dashed var(--rule);border-radius:6px;color:var(--ink-soft);cursor:pointer;font-size:.9rem;background:var(--sheet)}
+.shot-empty b{font-size:1.6rem;font-weight:400;line-height:1;color:var(--blue)}
+.shot{margin:0;background:var(--sheet);border:1px solid var(--rule);padding:10px 10px 4px;box-shadow:0 2px 0 var(--rule);transform:rotate(.5deg)}
+.shot-frame{position:relative;background:var(--tab);min-height:120px}
+.shot img{display:block;width:100%;max-height:440px;object-fit:cover}
+.shot-frame p{position:absolute;inset:0;display:grid;place-items:center;margin:0;font-size:.85rem;color:var(--ink-soft);text-align:center;padding:12px}
+.shot figcaption{display:flex;justify-content:flex-end;gap:14px;padding:6px 2px;font-size:.82rem;color:var(--ink-soft)}
+.shot figcaption label{cursor:pointer}
 .ask{padding:14px 16px;display:flex;flex-direction:column;gap:6px}
 .ask p{margin:0}
 .ask-t{font-family:var(--f-display);font-weight:700}
@@ -201,6 +209,16 @@ table.habit{width:100%;border-collapse:collapse;font-size:.85rem}
       <ul class="rows rem" id="rems"></ul>
       <form class="add" id="remForm"><textarea id="remIn" class="grow" rows="1" placeholder="+ 기억할 것 쓰기" aria-label="기억할 것 추가"></textarea><button>추가</button></form>
     </div>
+  </section>
+
+  <section class="sec">
+    <h2>오늘의 한 컷</h2>
+    <label class="shot-empty" id="photoEmpty" for="photoIn"><b>＋</b>사진 넣기</label>
+    <figure class="shot" id="photoFull" hidden>
+      <div class="shot-frame"><img id="photoImg" alt="오늘의 사진"><p id="photoMsg" hidden>드라이브에 연결하면 사진이 보여요</p></div>
+      <figcaption><label for="photoIn">바꾸기</label><button type="button" id="photoDel">빼기</button></figcaption>
+    </figure>
+    <input type="file" id="photoIn" accept="image/*" hidden>
   </section>
 
   <section class="sec">
@@ -293,6 +311,7 @@ function render(){
   renderTasks(); renderThanks();
   renderRems();
   requestAnimationFrame(fitAll);
+  Photos.show();
   renderHabit();
 }
 function renderTasks(){
@@ -436,6 +455,7 @@ function merge(inc,preferInc,union){
         b.tasks.forEach(t=>{if(!a.tasks.some(x=>x.id===t.id||x.t===t.t))a.tasks.push(t);});
         b.thanks.forEach(t=>{if(!a.thanks.includes(t))a.thanks.push(t);});
         b.remember.forEach(t=>{if(!a.remember.some(x=>x.id===t.id||x.t===t.t))a.remember.push(t);});
+        if(!a.photo&&b.photo)a.photo=b.photo;
       }else{
         b.habits.forEach(h=>{const x=a.habits.find(x=>x.n===h.n);if(x)x.c=x.c.map((v,i)=>v||h.c[i]?1:0);else a.habits.push(h);});
         if(a.habits.length)delete a.pending;a.memoThis=cat(a.memoThis,b.memoThis);a.memoNext=cat(a.memoNext,b.memoNext);
@@ -458,6 +478,7 @@ async function weekXlsx(m){
     rows.push([`${WD[i]}요일  ${dt.getMonth()+1}/${dt.getDate()}`]);
     if(d.tasks.length)d.tasks.forEach(t=>rows.push(["",`${t.s==="done"?"☑":"☐"} ${t.t}`,LBL[t.s]||""]));else rows.push(["","(할 일 없음)"]);
     rows.push(["감사 일기",d.thanks.map((x,j)=>`${j+1}. ${x}`).join("\n")]);
+    if(d.photo)rows.push(["오늘의 한 컷","사진 있음 (드라이브 happyday 다이어리 폴더)"]);
     rows.push(["기억할 것",d.remember.map(x=>(x.c?"→ ":"")+x.t).join("\n")]);rows.push([]);
   }
   rows.push(["습관",...WD]);
@@ -471,6 +492,54 @@ $("xlsBtn").onclick=async()=>{
     if(Drive.ready()){await Drive.uploadXlsx(m,b);toast("엑셀을 저장하고 드라이브에도 올렸어요");}else toast("엑셀 파일을 저장했어요");}
   catch(e){toast("엑셀을 만들지 못했어요. 인터넷 연결을 확인해 주세요.");}
 };
+
+/* ───────── 오늘의 한 컷 (사진은 이 기기 IndexedDB + 드라이브에 저장) ───────── */
+const Photos=(()=>{
+  let dbp,shownUrl=null,token=0;
+  const idb=()=>dbp||(dbp=new Promise((ok,no)=>{const r=indexedDB.open("happyday-photos",1);r.onupgradeneeded=()=>r.result.createObjectStore("p");r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error);}));
+  async function put(id,blob){const d=await idb();return new Promise((ok,no)=>{const t=d.transaction("p","readwrite");t.objectStore("p").put(blob,id);t.oncomplete=ok;t.onerror=()=>no(t.error);});}
+  async function get(id){try{const d=await idb();return await new Promise(ok=>{const r=d.transaction("p").objectStore("p").get(id);r.onsuccess=()=>ok(r.result||null);r.onerror=()=>ok(null);});}catch(e){return null}}
+  async function del(id){try{const d=await idb();d.transaction("p","readwrite").objectStore("p").delete(id);}catch(e){}}
+  async function shrink(file){
+    const url=URL.createObjectURL(file);
+    try{
+      const img=await new Promise((ok,no)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=no;i.src=url;});
+      const k=Math.min(1,1600/Math.max(img.naturalWidth,img.naturalHeight)), w=Math.round(img.naturalWidth*k), h=Math.round(img.naturalHeight*k);
+      const c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(img,0,0,w,h);
+      const blob=await new Promise(ok=>c.toBlob(ok,"image/jpeg",0.82));
+      if(!blob)throw new Error("encode");
+      return {blob,w,h};
+    }finally{URL.revokeObjectURL(url);}
+  }
+  async function show(){
+    const my=++token, p=day().photo, img=$("photoImg");
+    if(shownUrl){URL.revokeObjectURL(shownUrl);shownUrl=null;}
+    $("photoEmpty").hidden=!!p; $("photoFull").hidden=!p; $("photoMsg").hidden=true; img.removeAttribute("src"); img.hidden=false;
+    if(!p)return;
+    img.style.aspectRatio=`${p.w}/${p.h}`;
+    let b=await get(p.id);
+    if(!b&&p.drive&&Drive.ready()){try{const r=await Drive.api(`https://www.googleapis.com/drive/v3/files/${p.drive}?alt=media`);b=await r.blob();await put(p.id,b);}catch(e){}}
+    if(my!==token)return;
+    if(b){shownUrl=URL.createObjectURL(b);img.src=shownUrl;}else{img.hidden=true;$("photoMsg").hidden=false;}
+  }
+  function trash(p){if(p.drive){(DB.meta.trash=DB.meta.trash||[]).push(p.drive);}del(p.id);}
+  async function add(file){
+    try{const {blob,w,h}=await shrink(file),id=uid()+uid();await put(id,blob);
+      const d=day(cur,true);if(d.photo)trash(d.photo);d.photo={id,w,h,drive:null};touchDay();show();toast("사진을 넣었어요");}
+    catch(e){toast("사진을 넣지 못했어요. 다른 사진으로 해 보세요.");}
+  }
+  function remove(){const d=day(cur,true);if(!d.photo)return;trash(d.photo);delete d.photo;touchDay();show();toast("사진을 뺐어요");}
+  /* 동기화 때: 아직 안 올린 사진을 드라이브에 올리고, 뺀 사진은 드라이브 휴지통으로 */
+  async function pushPending(upload,api){
+    for(const k in DB.days){const p=DB.days[k].photo;
+      if(p&&!p.drive){const b=await get(p.id);if(b){p.drive=await upload(`happyday-사진-${k}.jpg`,b,"image/jpeg");DB.days[k].u=Date.now();}}}
+    const t=DB.meta.trash||[];
+    while(t.length){try{await api(`https://www.googleapis.com/drive/v3/files/${t[0]}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({trashed:true})});}catch(e){if(e.message==="auth")throw e;}t.shift();}
+  }
+  $("photoIn").onchange=e=>{const f=e.target.files[0];if(f)add(f);e.target.value="";};
+  $("photoDel").onclick=()=>{if(confirm("이 날의 사진을 뺄까요?"))remove();};
+  return {show,pushPending};
+})();
 
 /* ───────── 구글 드라이브 동기화 ───────── */
 const Drive=(()=>{
@@ -531,6 +600,7 @@ const Drive=(()=>{
       let file=await find(`name='${FILE}' and '${fid}' in parents`);
       if(file){const r=await api(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`);
         const remote=await r.json(); if(merge(remote,false,!DB.meta.synced)){try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){} render();}}
+      await Photos.pushPending(upload,api);
       await upload(FILE,new Blob([JSON.stringify(DB)],{type:"application/json"}),"application/json",file&&file.id);
       DB.meta.synced=true;
       await weeklyExports();
@@ -555,7 +625,7 @@ const Drive=(()=>{
   $("syncBtn").onclick=connect;
   window.addEventListener("load",()=>{initClient();idle();if(ready())sync();});
   document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){if(cur!==todayKey()&&lastToday!==todayKey()){lastToday=todayKey();go(lastToday);}if(ready())sync();else idle();}});
-  return {schedule,ready,uploadXlsx,idle};
+  return {schedule,ready,uploadXlsx,idle,api};
 })();
 let lastToday=todayKey();
 
