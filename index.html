@@ -469,23 +469,53 @@ function merge(inc,preferInc,union){
 
 /* ───────── 엑셀 ───────── */
 let xlsxReady;
-function loadXlsx(){return xlsxReady||(xlsxReady=new Promise((ok,no)=>{const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";s.onload=ok;s.onerror=no;document.head.appendChild(s);}));}
+function loadXlsx(){return xlsxReady||(xlsxReady=new Promise((ok,no)=>{const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js";s.onload=ok;s.onerror=()=>{xlsxReady=null;no(new Error("load"));};document.head.appendChild(s);}));}
+/* 엑셀용 작은 사진 */
+async function thumb(blob,maxW,maxH){
+  const url=URL.createObjectURL(blob);
+  try{const img=await new Promise((ok,no)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=no;i.src=url;});
+    const k=Math.min(maxW/img.naturalWidth,maxH/img.naturalHeight,1), w=Math.round(img.naturalWidth*k), h=Math.round(img.naturalHeight*k);
+    const c=document.createElement("canvas");c.width=w*2;c.height=h*2;c.getContext("2d").drawImage(img,0,0,w*2,h*2);
+    return {base64:c.toDataURL("image/jpeg",0.8).split(",")[1],w,h};
+  }finally{URL.revokeObjectURL(url);}
+}
 async function weekXlsx(m){
   await loadXlsx();
   const w=DB.weeks[m]||{memoThis:"",memoNext:"",habits:[]}, end=addDays(m,6);
-  const rows=[[`주간 스케줄러  ${m} ~ ${end}`],[],["이번 주",w.memoThis||""],["다음 주",w.memoNext||""],[]];
-  for(let i=0;i<7;i++){const k=addDays(m,i),d=day(k),dt=parse(k);
-    rows.push([`${WD[i]}요일  ${dt.getMonth()+1}/${dt.getDate()}`]);
-    if(d.tasks.length)d.tasks.forEach(t=>rows.push(["",`${t.s==="done"?"☑":"☐"} ${t.t}`,LBL[t.s]||""]));else rows.push(["","(할 일 없음)"]);
-    rows.push(["감사 일기",d.thanks.map((x,j)=>`${j+1}. ${x}`).join("\n")]);
-    if(d.photo)rows.push(["오늘의 한 컷","사진 있음 (드라이브 happyday 다이어리 폴더)"]);
-    rows.push(["기억할 것",d.remember.map(x=>(x.c?"→ ":"")+x.t).join("\n")]);rows.push([]);
+  const wb=new ExcelJS.Workbook(), ws=wb.addWorksheet("주간",{pageSetup:{paperSize:9,fitToPage:true,fitToWidth:1,fitToHeight:0}});
+  ws.columns=[{width:13},{width:46},{width:9},{width:30}];
+  const gray={type:"pattern",pattern:"solid",fgColor:{argb:"FFD9D9D9"}}, wrap={wrapText:true,vertical:"top"};
+  const lines=(t,per)=>String(t||"").split("\n").reduce((n,l)=>n+Math.max(1,Math.ceil(l.length/per)),0);
+  const add=(vals,h)=>{const r=ws.addRow(vals);r.alignment=wrap;if(h)r.height=h;return r;};
+  const t=ws.addRow([`주간 스케줄러   ${m} ~ ${end}`]);t.font={bold:true,size:14};t.height=24;ws.mergeCells(`A${t.number}:D${t.number}`);
+  ws.addRow([]);
+  [["이번 주",w.memoThis],["다음 주",w.memoNext]].forEach(([k,v])=>{const r=add([k,v||""],Math.max(18,lines(v,24)*16));r.getCell(1).font={bold:true};ws.mergeCells(`B${r.number}:D${r.number}`);});
+  ws.addRow([]);
+  for(let i=0;i<7;i++){
+    const k=addDays(m,i),d=day(k),dt=parse(k);
+    const hd=ws.addRow([`${WD[i]}요일   ${dt.getMonth()+1}/${dt.getDate()}`,"","",d.photo?"오늘의 한 컷":""]);hd.font={bold:true};hd.height=20;
+    for(let c=1;c<=4;c++)hd.getCell(c).fill=gray;
+    const first=hd.number+1; let pts=0;
+    (d.tasks.length?d.tasks:[null]).forEach(x=>{const v=x?`${x.s==="done"?"☑":"☐"} ${x.t}`:"(할 일 없음)";const r=add(["",v,x?LBL[x.s]||"":""],Math.max(18,lines(v,24)*16));pts+=r.height;});
+    const th=d.thanks.map((x,j)=>`${j+1}. ${x}`).join("\n");let r=add(["감사 일기",th],Math.max(18,lines(th,24)*16));r.getCell(1).font={bold:true};pts+=r.height;
+    const rm=d.remember.map(x=>(x.c?"→ ":"")+x.t).join("\n");r=add(["기억할 것",rm],Math.max(18,lines(rm,24)*16));r.getCell(1).font={bold:true};pts+=r.height;
+    if(d.photo){
+      let tb=null;try{const b=await Photos.blobOf(d.photo);if(b)tb=await thumb(b,205,150);}catch(e){}
+      if(tb){
+        while(pts*4/3<tb.h+6){r=ws.addRow([]);r.height=18;pts+=18;}
+        const id=wb.addImage({base64:tb.base64,extension:"jpeg"});
+        ws.addImage(id,{tl:{col:3.05,row:first-1+0.1},ext:{width:tb.w,height:tb.h}});
+      }else ws.getCell(`D${first}`).value="사진 있음 (드라이브 happyday 다이어리 폴더)";
+    }
+    ws.addRow([]);
   }
-  rows.push(["습관",...WD]);
-  (w.habits||[]).forEach(h=>rows.push([h.n,...h.c.map(v=>v?"○":"")]));
-  const ws=XLSX.utils.aoa_to_sheet(rows); ws["!cols"]=[{wch:14},{wch:44},{wch:8},{wch:4},{wch:4},{wch:4},{wch:4},{wch:4}];
-  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"주간");
-  return new Blob([XLSX.write(wb,{bookType:"xlsx",type:"array"})],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  const hs=wb.addWorksheet("습관");
+  hs.columns=[{width:16},...WD.map(()=>({width:6}))];
+  const hh=hs.addRow(["습관",...WD]);hh.font={bold:true};hh.alignment={horizontal:"center"};
+  for(let c=1;c<=8;c++)hh.getCell(c).fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFD9EAD3"}};
+  (w.habits||[]).forEach(h=>{const r=hs.addRow([h.n,...h.c.map(v=>v?"○":"")]);r.alignment={horizontal:"center"};r.getCell(1).alignment={horizontal:"left"};});
+  const buf=await wb.xlsx.writeBuffer();
+  return new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
 }
 $("xlsBtn").onclick=async()=>{
   try{const m=monday(cur),b=await weekXlsx(m);download(`happyday-week-${m}.xlsx`,b);
@@ -538,7 +568,9 @@ const Photos=(()=>{
   }
   $("photoIn").onchange=e=>{const f=e.target.files[0];if(f)add(f);e.target.value="";};
   $("photoDel").onclick=()=>{if(confirm("이 날의 사진을 뺄까요?"))remove();};
-  return {show,pushPending};
+  /* 엑셀용: 이 기기에 없으면 드라이브에서 받아 옴 */
+  async function blobOf(p){let b=await get(p.id);if(!b&&p.drive&&Drive.ready()){const r=await Drive.api(`https://www.googleapis.com/drive/v3/files/${p.drive}?alt=media`);b=await r.blob();await put(p.id,b);}return b;}
+  return {show,pushPending,blobOf};
 })();
 
 /* ───────── 구글 드라이브 동기화 ───────── */
