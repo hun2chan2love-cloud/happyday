@@ -130,6 +130,13 @@ table.habit{width:100%;border-collapse:collapse;font-size:.85rem}
 .habit td.name input{width:100%;border:0;background:transparent;font:inherit;color:inherit}
 .habit td.now{background:color-mix(in srgb,var(--marker) 55%,transparent)}
 .habit tr:last-child td{border-bottom:0}
+.ask{padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.ask p{margin:0}
+.ask-t{font-family:var(--f-display);font-weight:700}
+.ask-l{font-size:.85rem;color:var(--ink-soft);overflow-wrap:anywhere}
+.ask-b{display:flex;gap:8px;margin-top:6px}
+.ask-b button{flex:1;border:1px solid var(--rule);border-radius:20px;padding:8px 0;font-size:.9rem}
+.ask-b .pri{background:var(--blue);border-color:var(--blue);color:var(--sheet)}
 .dot{width:26px;height:26px;border-radius:50%;border:1.5px solid var(--rule);display:inline-grid;place-items:center;font-size:.8rem}
 .dot.on{background:var(--blue);border-color:var(--blue);color:var(--sheet)}
 
@@ -192,6 +199,11 @@ table.habit{width:100%;border-collapse:collapse;font-size:.85rem}
 
   <section class="sec">
     <h2>이번 주 습관</h2>
+    <div class="box ask" id="habitAsk" hidden>
+      <p class="ask-t" id="askTitle"></p>
+      <p class="ask-l" id="askList"></p>
+      <div class="ask-b"><button type="button" class="pri" id="askKeep">이어서 쓰기</button><button type="button" id="askNew">새로 시작</button></div>
+    </div>
     <div class="box habit-wrap"><table class="habit" id="habit"></table></div>
     <form class="add" id="habitForm" style="padding-inline:2px"><input id="habitIn" placeholder="+ 습관 추가" aria-label="습관 추가" autocomplete="off"><button>추가</button></form>
   </section>
@@ -248,7 +260,8 @@ function week(m=monday(cur)){
   const prevKeys=Object.keys(DB.weeks).filter(k=>k<m).sort(), pk=prevKeys[prevKeys.length-1], p=pk?DB.weeks[pk]:null;
   const v=views[m]||(views[m]={memoThis:"",memoNext:"",habits:[],u:0});
   v.memoThis=v._edited?v.memoThis:(p&&pk===addDays(m,-7)?(p.memoNext||""):"");
-  if(!v._edited)v.habits=p?p.habits.map((h,i)=>({id:(v.habits[i]&&v.habits[i].id)||uid(),n:h.n,c:[0,0,0,0,0,0,0]})):[];
+  /* 습관은 바로 이어받지 않고, 지난 목록을 pending에 두었다가 '이어서 쓰기/새로 시작'을 고르게 함 */
+  if(!v._edited){const src=p?(p.habits.length?p.habits.map(h=>h.n):(p.pending||[])):[];v.habits=[];v.pending=src.length?src:null;}
   return v;
 }
 function weekEdit(m=monday(cur)){const w=week(m);if(!DB.weeks[m]){w._edited=true;DB.weeks[m]=w;}return w;}
@@ -294,9 +307,12 @@ function renderThanks(){
 }
 function renderHabit(){
   const m=monday(cur), wk=week(m), ni=(m===monday(todayKey()))?(parse(todayKey()).getDay()+6)%7:-1;
+  const ask=!!(wk.pending&&wk.pending.length);
+  $("habitAsk").hidden=!ask; $("habit").parentElement.hidden=ask; $("habitForm").hidden=ask;
+  if(ask){$("askList").textContent=wk.pending.join(" · ");$("askTitle").textContent=`지난주 습관 ${wk.pending.length}개를 이어서 쓸까요?`;return;}
   $("habit").innerHTML=`<thead><tr><th>습관</th>${WD.map((w,i)=>`<th class="${i===ni?"now":""}">${w}</th>`).join("")}</tr></thead><tbody>`+
    (wk.habits.length?wk.habits.map(h=>`<tr data-id="${h.id}"><td class="name"><input value="${esc(h.n)}" aria-label="습관 이름"></td>${h.c.map((v,i)=>`<td class="${i===ni?"now":""}"><button type="button" class="dot ${v?"on":""}" data-i="${i}" aria-label="${esc(h.n)} ${WD[i]}요일" aria-pressed="${!!v}">${v?"✓":""}</button></td>`).join("")}</tr>`).join("")
-   :`<tr><td colspan="8" class="empty" style="text-align:left;border:0">아래에 습관을 추가해 보세요. 다음 주에도 그대로 이어져요.</td></tr>`)+`</tbody>`;
+   :`<tr><td colspan="8" class="empty" style="text-align:left;border:0">아래에 습관을 추가해 보세요.</td></tr>`)+`</tbody>`;
 }
 
 /* ───────── 입력 처리 ───────── */
@@ -344,6 +360,15 @@ $("habit").addEventListener("change",e=>{
   if(v)w.habits.find(h=>h.id===id).n=v; else w.habits=w.habits.filter(h=>h.id!==id);
   touchWeek(); renderHabit();
 });
+function answerHabits(keep){
+  const w=weekEdit(), names=w.pending||[];
+  w.habits=keep?names.map(n=>({id:uid(),n,c:[0,0,0,0,0,0,0]})):[];
+  delete w.pending; touchWeek(); renderHabit();
+  toast(keep?"지난주 습관을 이어서 써요":"새 습관 목록으로 시작해요");
+  if(!keep)$("habitIn").focus();
+}
+$("askKeep").onclick=()=>answerHabits(true);
+$("askNew").onclick=()=>answerHabits(false);
 function bindAdd(form,input,fn){$(form).addEventListener("submit",e=>{e.preventDefault();const v=$(input).value.trim();if(!v)return;fn(v);$(input).value="";});}
 bindAdd("taskForm","taskIn",v=>{day(cur,true).tasks.push({id:uid(),t:v,s:""});touchDay();renderTasks();render();$("taskIn").focus();});
 bindAdd("thxForm","thxIn",v=>{day(cur,true).thanks.push(v);touchDay();renderThanks();render();$("thxIn").focus();});
@@ -385,7 +410,7 @@ function merge(inc,preferInc,union){
         b.remember.forEach(t=>{if(!a.remember.some(x=>x.id===t.id||x.t===t.t))a.remember.push(t);});
       }else{
         b.habits.forEach(h=>{const x=a.habits.find(x=>x.n===h.n);if(x)x.c=x.c.map((v,i)=>v||h.c[i]?1:0);else a.habits.push(h);});
-        a.memoThis=cat(a.memoThis,b.memoThis);a.memoNext=cat(a.memoNext,b.memoNext);
+        if(a.habits.length)delete a.pending;a.memoThis=cat(a.memoThis,b.memoThis);a.memoNext=cat(a.memoNext,b.memoNext);
       }
       a.u=Math.max(a.u||0,b.u||0)+(JSON.stringify(a)!==before?1:0);
       changed=changed||JSON.stringify(a)!==before;
