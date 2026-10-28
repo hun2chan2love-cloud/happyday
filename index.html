@@ -107,7 +107,10 @@ details.memo[open] summary::after{content:"접기"}
 /* 감사일기 */
 .thanks{counter-reset:t}
 .thanks .row{counter-increment:t;padding-left:12px}
-.thanks .row::before{content:counter(t);font-family:var(--f-display);color:var(--blue);width:1em;flex-shrink:0}
+.thanks .row::before{content:counter(t);font-family:var(--f-display);color:var(--blue);width:1em;flex-shrink:0;align-self:flex-start;padding-top:6px}
+textarea.grow{resize:none;overflow:hidden;display:block;white-space:pre-wrap;word-break:keep-all;overflow-wrap:anywhere}
+#thxForm textarea{flex:1;min-width:0;border:0;background:transparent;color:var(--ink);font-family:var(--f-hand);font-size:1.4rem;line-height:1.2;padding:4px 0}
+#thxForm textarea::placeholder{color:var(--ink-soft)}
 .thanks .edit,.thanks .add input{font-family:var(--f-hand);font-size:1.4rem;line-height:1.2}
 
 /* 기억할 것 */
@@ -185,7 +188,7 @@ table.habit{width:100%;border-collapse:collapse;font-size:.85rem}
     <h2>감사 일기</h2>
     <div class="box">
       <ul class="rows thanks" id="thanks"></ul>
-      <form class="add" id="thxForm"><input id="thxIn" placeholder="+ 한 줄 더 쓰기" aria-label="감사 한 줄 추가" autocomplete="off"><button>추가</button></form>
+      <form class="add" id="thxForm"><textarea id="thxIn" class="grow" rows="1" placeholder="+ 한 줄 더 쓰기" aria-label="감사 한 줄 추가"></textarea><button>추가</button></form>
     </div>
   </section>
 
@@ -301,9 +304,17 @@ function renderRems(){
   $("rems").innerHTML=day().remember.map(x=>`<li class="row" data-id="${x.id}"><input class="edit" value="${esc(x.t)}" aria-label="기억할 것">
     <label class="carry"><input type="checkbox" ${x.c?"checked":""}>내일 할 일</label></li>`).join("");
 }
+/* 감사일기: 길어지면 줄이 늘어나며 다 보이게 */
+function fit(t){t.style.height="auto";t.style.height=t.scrollHeight+"px";}
+document.addEventListener("input",e=>{if(e.target.classList&&e.target.classList.contains("grow"))fit(e.target);});
+document.addEventListener("keydown",e=>{
+  if(e.key!=="Enter"||e.shiftKey||e.isComposing||!(e.target.classList&&e.target.classList.contains("grow")))return;
+  e.preventDefault(); if(e.target.id==="thxIn")$("thxForm").requestSubmit(); else e.target.blur();
+});
 function renderThanks(){
   const th=day().thanks;
-  $("thanks").innerHTML=th.map((x,i)=>`<li class="row" data-i="${i}"><input class="edit" value="${esc(x)}" aria-label="감사 ${i+1}"></li>`).join("");
+  $("thanks").innerHTML=th.map((x,i)=>`<li class="row" data-i="${i}"><textarea class="edit grow" rows="1" aria-label="감사 ${i+1}">${esc(x)}</textarea></li>`).join("");
+  $("thanks").querySelectorAll("textarea").forEach(fit);
 }
 function renderHabit(){
   const m=monday(cur), wk=week(m), ni=(m===monday(todayKey()))?(parse(todayKey()).getDay()+6)%7:-1;
@@ -371,7 +382,7 @@ $("askKeep").onclick=()=>answerHabits(true);
 $("askNew").onclick=()=>answerHabits(false);
 function bindAdd(form,input,fn){$(form).addEventListener("submit",e=>{e.preventDefault();const v=$(input).value.trim();if(!v)return;fn(v);$(input).value="";});}
 bindAdd("taskForm","taskIn",v=>{day(cur,true).tasks.push({id:uid(),t:v,s:""});touchDay();renderTasks();render();$("taskIn").focus();});
-bindAdd("thxForm","thxIn",v=>{day(cur,true).thanks.push(v);touchDay();renderThanks();render();$("thxIn").focus();});
+bindAdd("thxForm","thxIn",v=>{day(cur,true).thanks.push(v.replace(/\s*\n\s*/g," "));touchDay();renderThanks();render();fit($("thxIn"));$("thxIn").focus();});
 bindAdd("remForm","remIn",v=>{day(cur,true).remember.push({id:uid(),t:v,c:0});touchDay();render();$("remIn").focus();});
 bindAdd("habitForm","habitIn",v=>{weekEdit().habits.push({id:uid(),n:v,c:[0,0,0,0,0,0,0]});touchWeek();renderHabit();});
 
