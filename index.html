@@ -336,15 +336,29 @@ function download(name,blob){const a=document.createElement("a");a.href=URL.crea
 $("bakBtn").onclick=()=>download(`happyday-backup-${todayKey()}.json`,new Blob([JSON.stringify(DB)],{type:"application/json"}));
 $("restore").onchange=async e=>{
   const f=e.target.files[0];if(!f)return;
-  try{const inc=JSON.parse(await f.text());if(!inc.days||!inc.weeks)throw 0;merge(inc,true);persist();render();toast("백업을 불러왔어요");}
+  try{const inc=JSON.parse(await f.text());if(!inc.days||!inc.weeks)throw 0;merge(inc,true,true);persist();render();toast("백업을 불러왔어요");}
   catch(err){toast("백업 파일을 읽지 못했어요. happyday 백업 파일(.json)인지 확인해 주세요.");}
   e.target.value="";
 };
 /* 기록 합치기: 날짜·주 단위로 더 최근에 고친 쪽을 남김 */
-function merge(inc,preferInc){
+function merge(inc,preferInc,union){
   let changed=false;
+  const cat=(x,y)=>!x?y:!y||x===y?x:(x.includes(y)?x:y.includes(x)?y:x+"\n"+y);
   for(const sec of ["days","weeks"]){for(const k in (inc[sec]||{})){const a=DB[sec][k],b=inc[sec][k];
-    if(!a||(b.u||0)>(a.u||0)||(preferInc&&(b.u||0)===(a.u||0))){DB[sec][k]=b;changed=true;}}}
+    if(a&&union){
+      /* 이 기기에서 드라이브에 처음 연결할 때: 어느 쪽 기록도 지우지 않고 합침 */
+      const before=JSON.stringify(a);
+      if(sec==="days"){
+        b.tasks.forEach(t=>{if(!a.tasks.some(x=>x.id===t.id||x.t===t.t))a.tasks.push(t);});
+        b.thanks.forEach(t=>{if(!a.thanks.includes(t))a.thanks.push(t);});
+        a.remember=cat(a.remember,b.remember);
+      }else{
+        b.habits.forEach(h=>{const x=a.habits.find(x=>x.n===h.n);if(x)x.c=x.c.map((v,i)=>v||h.c[i]?1:0);else a.habits.push(h);});
+        a.memoThis=cat(a.memoThis,b.memoThis);a.memoNext=cat(a.memoNext,b.memoNext);
+      }
+      a.u=Math.max(a.u||0,b.u||0)+(JSON.stringify(a)!==before?1:0);
+      changed=changed||JSON.stringify(a)!==before;
+    }else if(!a||(b.u||0)>(a.u||0)||(preferInc&&(b.u||0)===(a.u||0))){DB[sec][k]=b;changed=true;}}}
   Object.assign(DB.meta.exported,(inc.meta&&inc.meta.exported)||{});
   return changed;
 }
@@ -432,8 +446,9 @@ const Drive=(()=>{
       const fid=await folderId();
       let file=await find(`name='${FILE}' and '${fid}' in parents`);
       if(file){const r=await api(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`);
-        const remote=await r.json(); if(merge(remote,false)){try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){} render();}}
+        const remote=await r.json(); if(merge(remote,false,!DB.meta.synced)){try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){} render();}}
       await upload(FILE,new Blob([JSON.stringify(DB)],{type:"application/json"}),"application/json",file&&file.id);
+      DB.meta.synced=true;
       await weeklyExports();
       try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){}
       busy=false;idle();
