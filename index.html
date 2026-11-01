@@ -158,6 +158,14 @@ table.habit{width:100%;border-collapse:collapse;font-size:.85rem}
 .tools{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;border-top:1px dashed var(--rule);padding-top:14px}
 .tools button,.tools label{border:1px solid var(--rule);border-radius:20px;padding:6px 14px;font-size:.82rem;color:var(--ink-soft);cursor:pointer}
 .foot{font-size:.75rem;color:var(--ink-soft);text-align:center;margin:0}
+.gate{position:fixed;inset:0;z-index:30;display:grid;place-items:center;padding:24px;background:color-mix(in srgb,var(--paper) 72%,transparent);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);cursor:pointer}
+.gate-card{background:var(--sheet);border:1px solid var(--rule);border-radius:10px;padding:20px 22px;max-width:320px;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,.08);display:flex;flex-direction:column;gap:8px}
+.gate-card p{margin:0}
+.gate-t{font-family:var(--f-display);font-weight:700;font-size:1.05rem}
+.gate-s{font-size:.85rem;color:var(--ink-soft)}
+#gateSkip{font-size:.78rem;color:var(--ink-soft);text-decoration:underline;margin-top:6px}
+.gate[data-s="busy"]{cursor:progress}
+.gate[data-s="busy"] #gateSkip{display:none}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:8px 16px;border-radius:20px;font-size:.85rem;z-index:20;max-width:90vw;text-align:center}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -240,6 +248,13 @@ table.habit{width:100%;border-collapse:collapse;font-size:.85rem}
   <p class="foot">항목 글자를 누르면 고칠 수 있고, 글자를 모두 지우면 항목이 삭제돼요.<br>화면을 좌우로 밀면 날짜가 바뀌어요.</p>
 </div>
 <div class="toast" id="toast" hidden></div>
+<div class="gate" id="gate" hidden role="dialog" aria-live="polite">
+  <div class="gate-card">
+    <p class="gate-t" id="gateMsg"></p>
+    <p class="gate-s" id="gateSub"></p>
+    <button type="button" id="gateSkip">연결 없이 이 기기 기록으로 쓰기</button>
+  </div>
+</div>
 
 <script>
 "use strict";
@@ -576,12 +591,26 @@ const Photos=(()=>{
 /* ───────── 구글 드라이브 동기화 ───────── */
 const Drive=(()=>{
   const SCOPE="https://www.googleapis.com/auth/drive.file", FOLDER="happyday 다이어리", FILE="happyday-data.json";
-  let token=null,exp=0,client=null,timer=null,busy=false,dirty=false;
+  let token=null,exp=0,client=null,timer=null,busy=false,dirty=false,skipped=false;
   try{const t=JSON.parse(localStorage.getItem("happyday-token")||"null");if(t&&t.exp>Date.now()+60e3){token=t.v;exp=t.exp;}}catch(e){}
   const wasLinked=()=>{try{return localStorage.getItem("happyday-linked")==="1"}catch(e){return false}};
   const ready=()=>token&&Date.now()<exp-30e3;
   function status(s,txt){$("sync").dataset.s=s;$("syncTxt").textContent=txt;}
+  /* 연결이 끝난 채로 쓰면 다른 기기 기록과 겹칠 수 있어서, 다시 연결할 때까지 화면을 잠깐 덮음.
+     화면을 누르는 순간(=사용자 동작) 바로 구글 연결을 다시 요청함 */
+  function gate(state){
+    const g=$("gate");
+    if(!state){g.hidden=true;return;}
+    g.hidden=false;g.dataset.s=state;
+    if(state==="busy"){$("gateMsg").textContent="최신 기록을 받는 중…";$("gateSub").textContent="잠시만 기다려 주세요";}
+    else{$("gateMsg").textContent="화면을 누르면 다시 연결돼요";$("gateSub").textContent="드라이브에서 다른 기기에 쓴 최신 기록을 받아 온 뒤 쓸 수 있어요";}
+  }
+  function gateCheck(){
+    if(!window.HAPPYDAY_CLIENT_ID||!wasLinked()||skipped||!navigator.onLine||ready())return $("gate").dataset.s==="busy"&&busy?0:gate(null);
+    gate("tap");
+  }
   function idle(){
+    gateCheck();
     if(!window.HAPPYDAY_CLIENT_ID)return status("off","드라이브 연결 전 · 이 폰에만 저장 중");
     if(ready())return status("ok","드라이브와 동기화됨");
     if(wasLinked())return status("warn","드라이브 연결이 끝났어요 · 눌러서 다시 연결");
@@ -589,18 +618,21 @@ const Drive=(()=>{
   }
   function initClient(){
     if(client||!window.google||!google.accounts)return client;
-    client=google.accounts.oauth2.initTokenClient({client_id:window.HAPPYDAY_CLIENT_ID,scope:SCOPE,callback:r=>{
+    client=google.accounts.oauth2.initTokenClient({client_id:window.HAPPYDAY_CLIENT_ID,scope:SCOPE,
+      error_callback:()=>{idle();toast("드라이브 연결이 취소됐어요");},
+      callback:r=>{
       if(r.error){idle();return toast("드라이브 연결이 취소됐어요");}
       token=r.access_token;exp=Date.now()+(r.expires_in||3600)*1000;
       try{localStorage.setItem("happyday-token",JSON.stringify({v:token,exp}));localStorage.setItem("happyday-linked","1");}catch(e){}
-      sync();
+      skipped=false;sync(true);
     }});
     return client;
   }
   function connect(){
     if(!window.HAPPYDAY_CLIENT_ID)return toast("아직 구글 연결 설정(Client ID)이 들어가지 않았어요");
-    if(ready())return sync();
+    if(ready())return sync(true);
     if(!initClient())return toast("구글 로그인을 불러오는 중이에요. 잠시 후 다시 눌러 주세요.");
+    if(wasLinked())gate("busy");
     client.requestAccessToken({prompt:wasLinked()?"":"consent"});
   }
   async function api(url,opt={}){
@@ -624,9 +656,10 @@ const Drive=(()=>{
     const r=await api("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",{method:"POST",body:fd});
     return (await r.json()).id;
   }
-  async function sync(){
+  async function sync(pull){
     if(!ready()||busy){dirty=true;return idle();}
     busy=true;dirty=false;status("busy","동기화 중…");
+    if(pull)gate("busy");
     try{
       const fid=await folderId();
       let file=await find(`name='${FILE}' and '${fid}' in parents`);
@@ -637,9 +670,9 @@ const Drive=(()=>{
       DB.meta.synced=true;
       await weeklyExports();
       try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){}
-      busy=false;idle();
+      busy=false;gate(null);idle();
       if(dirty)schedule();
-    }catch(e){busy=false;if(e.message!=="auth")status("warn","동기화 실패 · 눌러서 다시 시도");}
+    }catch(e){busy=false;gate(null);if(e.message!=="auth"){status("warn","동기화 실패 · 눌러서 다시 시도");toast("드라이브와 동기화하지 못했어요. 인터넷 연결을 확인해 주세요.");}else idle();}
   }
   /* 지난 주가 끝나면 그 주 엑셀을 드라이브에 자동 저장 */
   async function weeklyExports(){
@@ -654,9 +687,18 @@ const Drive=(()=>{
     await upload(name,blob,blob.type,ex&&ex.id); DB.meta.exported[m]=Date.now();
   }
   function schedule(){if(!ready())return idle();clearTimeout(timer);timer=setTimeout(sync,2500);}
-  $("syncBtn").onclick=connect;
-  window.addEventListener("load",()=>{initClient();idle();if(ready())sync();});
-  document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){if(cur!==todayKey()&&lastToday!==todayKey()){lastToday=todayKey();go(lastToday);}if(ready())sync();else idle();}});
+  $("syncBtn").onclick=()=>{skipped=false;connect();};
+  $("gate").addEventListener("click",e=>{
+    if($("gate").dataset.s==="busy")return;
+    if(e.target.id==="gateSkip"){skipped=true;gate(null);idle();return toast("이 기기 기록으로 써요. 맨 위 버튼을 누르면 언제든 연결돼요");}
+    connect();
+  });
+  window.addEventListener("load",()=>{initClient();if(ready())sync(true);else idle();});
+  document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){if(cur!==todayKey()&&lastToday!==todayKey()){lastToday=todayKey();go(lastToday);}if(ready())sync(true);else idle();}});
+  /* 켜 둔 채로 1시간이 지나 연결이 끝나면 바로 알려 줌 */
+  let wasReady=ready();
+  setInterval(()=>{const r=ready();if(wasReady&&!r)idle();wasReady=r;},30e3);
+  window.addEventListener("online",()=>{if(ready())sync(true);else idle();});
   return {schedule,ready,uploadXlsx,idle,api};
 })();
 let lastToday=todayKey();
