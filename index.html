@@ -13,6 +13,8 @@
 <script>
   /* ▼▼ 구글 클라우드에서 받은 OAuth 클라이언트 ID를 여기에 넣습니다 ▼▼ */
   window.HAPPYDAY_CLIENT_ID = "738516858278-bi121date2ik49nkv4o2st3hmrlhcm1t.apps.googleusercontent.com";
+  /* 이 계정으로만 연결 (계정 고르는 화면 없이 바로 연결되도록) */
+  window.HAPPYDAY_ACCOUNT = "hun2chan2love@gmail.com";
 </script>
 <style>
 :root{
@@ -618,10 +620,19 @@ const Drive=(()=>{
   }
   function initClient(){
     if(client||!window.google||!google.accounts)return client;
-    client=google.accounts.oauth2.initTokenClient({client_id:window.HAPPYDAY_CLIENT_ID,scope:SCOPE,
+    client=google.accounts.oauth2.initTokenClient({client_id:window.HAPPYDAY_CLIENT_ID,scope:SCOPE,login_hint:window.HAPPYDAY_ACCOUNT,
       error_callback:()=>{idle();toast("드라이브 연결이 취소됐어요");},
-      callback:r=>{
+      callback:async r=>{
       if(r.error){idle();return toast("드라이브 연결이 취소됐어요");}
+      /* 정해 둔 계정이 맞는지 확인하고, 다른 계정이면 연결하지 않음 */
+      try{
+        const a=await fetch("https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)",{headers:{Authorization:"Bearer "+r.access_token}});
+        const email=a.ok?((await a.json()).user||{}).emailAddress:"";
+        if(window.HAPPYDAY_ACCOUNT&&email&&email.toLowerCase()!==window.HAPPYDAY_ACCOUNT.toLowerCase()){
+          try{google.accounts.oauth2.revoke(r.access_token,()=>{});}catch(e){}
+          idle();return toast(`${window.HAPPYDAY_ACCOUNT} 계정으로만 연결할 수 있어요`);
+        }
+      }catch(e){}
       token=r.access_token;exp=Date.now()+(r.expires_in||3600)*1000;
       try{localStorage.setItem("happyday-token",JSON.stringify({v:token,exp}));localStorage.setItem("happyday-linked","1");}catch(e){}
       skipped=false;sync(true);
@@ -633,7 +644,7 @@ const Drive=(()=>{
     if(ready())return sync(true);
     if(!initClient())return toast("구글 로그인을 불러오는 중이에요. 잠시 후 다시 눌러 주세요.");
     if(wasLinked())gate("busy");
-    client.requestAccessToken({prompt:wasLinked()?"":"consent"});
+    client.requestAccessToken({prompt:wasLinked()?"":"consent",login_hint:window.HAPPYDAY_ACCOUNT});
   }
   async function api(url,opt={}){
     const r=await fetch(url,{...opt,headers:{Authorization:"Bearer "+token,...(opt.headers||{})}});
