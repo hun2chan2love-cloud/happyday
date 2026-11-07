@@ -119,6 +119,9 @@ textarea.edit{line-height:1.5}
 .row.long .edit{flex-basis:100%}
 .row.long{padding-bottom:8px}
 .rem .row{padding-left:12px}
+.carry{display:flex;align-items:center;gap:5px;font-size:.72rem;color:var(--ink-soft);flex-shrink:0;cursor:pointer;margin-left:auto}
+.carry input{width:20px;height:20px;accent-color:var(--blue);margin:0;cursor:pointer}
+.carry:has(input:checked){color:var(--blue)}
 .hint{font-size:.78rem;color:var(--ink-soft);margin:6px 2px 0}
 
 /* 습관표 */
@@ -273,25 +276,26 @@ let cur=todayKey();
 function norm(d){if(d&&!Array.isArray(d.remember))d.remember=String(d.remember||"").split("\n").map(t=>t.trim()).filter(Boolean).map(t=>({id:uid(),t,c:0}));return d;}
 function normAll(db){for(const k in (db.days||{}))norm(db.days[k]);return db;}
 normAll(DB);
-if(carryAll()){try{localStorage.setItem(KEY,JSON.stringify(DB));}catch(e){}}
-function day(k=cur,create){let d=DB.days[k];if(!d&&create){d=DB.days[k]={tasks:[],thanks:[],remember:[],u:0};}return d||{tasks:[],thanks:[],remember:[],u:0};}
-/* 기억할 것 → 다음 날 '오늘 할 일'로 자동 연결 (체크 없이 모든 줄)
-   k: 다음 날 할 일로 이미 넣었다는 표시. 다음 날에서 일부러 지운 할 일은 다시 만들지 않음 */
-function syncCarry(k,item,removed){
-  const nd=day(addDays(k,1),true), i=nd.tasks.findIndex(t=>t.from===item.id);
-  if(!removed&&item.t){if(i<0)nd.tasks.push({id:uid(),t:item.t,s:"",from:item.id});else nd.tasks[i].t=item.t;item.k=1;}
-  else if(i>=0&&!nd.tasks[i].s)nd.tasks.splice(i,1);   // 이미 완료/연기 등을 표시한 할 일은 남겨 둠
-  nd.u=Date.now();
-}
-function carryAll(){
+/* 체크하지 않은 기억할 것으로 자동 생성된 다음 날 할 일(상태 표시 전)은 지움 */
+function undoAutoCarry(){
   let changed=false;
   for(const k of Object.keys(DB.days)){for(const x of (DB.days[k].remember||[])){
-    if(x.k)continue;
-    const nd=DB.days[addDays(k,1)], has=nd&&nd.tasks.some(t=>t.from===x.id);
-    if(has||x.c){x.k=1;}else{syncCarry(k,x);}
-    DB.days[k].u=Math.max(DB.days[k].u||0,Date.now());changed=true;
+    if("k" in x){delete x.k;changed=true;}
+    if(x.c)continue;
+    const nd=DB.days[addDays(k,1)];if(!nd)continue;
+    const n=nd.tasks.length;nd.tasks=nd.tasks.filter(t=>!(t.from===x.id&&!t.s));
+    if(nd.tasks.length!==n){nd.u=Date.now();changed=true;}
   }}
   return changed;
+}
+if(undoAutoCarry()){try{localStorage.setItem(KEY,JSON.stringify(DB));}catch(e){}}
+function day(k=cur,create){let d=DB.days[k];if(!d&&create){d=DB.days[k]={tasks:[],thanks:[],remember:[],u:0};}return d||{tasks:[],thanks:[],remember:[],u:0};}
+/* 체크한 기억할 것 ↔ 다음 날 할 일 연결 */
+function syncCarry(k,item){
+  const nk=addDays(k,1), nd=day(nk,true), i=nd.tasks.findIndex(t=>t.from===item.id);
+  if(item.c&&item.t){if(i<0)nd.tasks.push({id:uid(),t:item.t,s:"",from:item.id});else nd.tasks[i].t=item.t;}
+  else if(i>=0)nd.tasks.splice(i,1);
+  nd.u=Date.now();
 }
 function touchDay(k=cur){const d=day(k,true);d.u=Date.now();persist();}
 /* 주 기록: 아직 없으면 지난 주에서 습관 목록과 '다음 주' 메모를 이어받은 기본값을 보여 주고,
@@ -324,7 +328,6 @@ function render(){
   const wk=week(m);
   $("mThis").value=wk.memoThis; $("mNext").value=wk.memoNext;
   $("peek").textContent=wk.memoThis?("이번 주: "+wk.memoThis.split("\n")[0]):"이번 주·다음 주 메모";
-
   renderTasks(); renderThanks();
   renderRems();
   requestAnimationFrame(fitAll);
@@ -342,7 +345,8 @@ function renderTasks(){
   $("tally").textContent=ts.length?`완료 ${c("done")} · 연기 ${c("later")} · 미완료 ${c("miss")} / ${ts.length}`:"";
 }
 function renderRems(){
-  $("rems").innerHTML=day().remember.map(x=>`<li class="row" data-id="${x.id}"><textarea class="edit grow" rows="1" aria-label="기억할 것">${esc(x.t)}</textarea></li>`).join("");
+  $("rems").innerHTML=day().remember.map(x=>`<li class="row" data-id="${x.id}"><textarea class="edit grow" rows="1" aria-label="기억할 것">${esc(x.t)}</textarea>
+    <label class="carry"><input type="checkbox" ${x.c?"checked":""}>내일 할 일</label></li>`).join("");
 }
 /* 감사일기: 길어지면 줄이 늘어나며 다 보이게 */
 function fit(t){
@@ -402,8 +406,11 @@ $("thanks").addEventListener("change",e=>{
 });
 $("rems").addEventListener("change",e=>{
   const d=day(cur,true), id=e.target.closest(".row").dataset.id, x=d.remember.find(r=>r.id===id);
+  if(e.target.type==="checkbox"){x.c=e.target.checked?1:0;syncCarry(cur,x);touchDay();
+    toast(x.c?"내일 할 일에 넣었어요":"내일 할 일에서 뺐어요");render();return;}
   const v=e.target.value.trim();
-  if(v){x.t=v;syncCarry(cur,x);}else{d.remember=d.remember.filter(r=>r.id!==id);syncCarry(cur,x,true);}
+  if(v){x.t=v;}else{d.remember=d.remember.filter(r=>r.id!==id);x.c=0;}
+  if(x.c||!v)syncCarry(cur,x);
   touchDay();render();
 });
 ["mThis","mNext"].forEach(id=>$(id).addEventListener("input",e=>{const w=weekEdit();w[id==="mThis"?"memoThis":"memoNext"]=e.target.value;touchWeek();
@@ -432,7 +439,7 @@ if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fitAll);
 window.addEventListener("resize",()=>{clearTimeout(fitAll.t);fitAll.t=setTimeout(fitAll,150);});
 bindAdd("taskForm","taskIn",v=>{day(cur,true).tasks.push({id:uid(),t:v,s:""});touchDay();renderTasks();render();$("taskIn").focus();});
 bindAdd("thxForm","thxIn",v=>{day(cur,true).thanks.push(v);touchDay();render();$("thxIn").focus();});
-bindAdd("remForm","remIn",v=>{const x={id:uid(),t:v};day(cur,true).remember.push(x);syncCarry(cur,x);touchDay();render();toast("내일 할 일에도 넣었어요");$("remIn").focus();});
+bindAdd("remForm","remIn",v=>{day(cur,true).remember.push({id:uid(),t:v,c:0});touchDay();render();$("remIn").focus();});
 bindAdd("habitForm","habitIn",v=>{weekEdit().habits.push({id:uid(),n:v,c:[0,0,0,0,0,0,0]});touchWeek();renderHabit();});
 
 /* 좌우로 밀어서 날짜 이동 */
@@ -511,7 +518,7 @@ async function weekXlsx(m){
     const first=hd.number+1; let pts=0;
     (d.tasks.length?d.tasks:[null]).forEach(x=>{const v=x?`${x.s==="done"?"☑":"☐"} ${x.t}`:"(할 일 없음)";const r=add(["",v,x?LBL[x.s]||"":""],Math.max(18,lines(v,24)*16));pts+=r.height;});
     const th=d.thanks.map((x,j)=>`${j+1}. ${x}`).join("\n");let r=add(["감사 일기",th],Math.max(18,lines(th,24)*16));r.getCell(1).font={bold:true};pts+=r.height;
-    const rm=d.remember.map(x=>x.t).join("\n");r=add(["기억할 것",rm],Math.max(18,lines(rm,24)*16));r.getCell(1).font={bold:true};pts+=r.height;
+    const rm=d.remember.map(x=>(x.c?"→ ":"")+x.t).join("\n");r=add(["기억할 것",rm],Math.max(18,lines(rm,24)*16));r.getCell(1).font={bold:true};pts+=r.height;
     if(d.photo){
       let tb=null;try{const b=await Photos.blobOf(d.photo);if(b)tb=await thumb(b,205,150);}catch(e){}
       if(tb){
@@ -671,7 +678,7 @@ const Drive=(()=>{
       const fid=await folderId();
       let file=await find(`name='${FILE}' and '${fid}' in parents`);
       if(file){const r=await api(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`);
-        const remote=await r.json(); if(merge(remote,false,!DB.meta.synced)|carryAll()){try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){} render();}}
+        const remote=await r.json(); if(merge(remote,false,!DB.meta.synced)|undoAutoCarry()){try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){} render();}}
       await Photos.pushPending(upload,api);
       await upload(FILE,new Blob([JSON.stringify(DB)],{type:"application/json"}),"application/json",file&&file.id);
       DB.meta.synced=true;
