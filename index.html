@@ -9,7 +9,7 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=Gowun+Dodum&family=Nanum+Pen+Script&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=Gowun+Dodum&display=swap">
 <script>
   /* ▼▼ 구글 클라우드에서 받은 OAuth 클라이언트 ID를 여기에 넣습니다 ▼▼ */
   window.HAPPYDAY_CLIENT_ID = "738516858278-bi121date2ik49nkv4o2st3hmrlhcm1t.apps.googleusercontent.com";
@@ -21,7 +21,7 @@
   --paper:#fbf8f1; --sheet:#fffdf8; --ink:#2b2f3a; --ink-soft:#6b6f7a;
   --rule:#e4dccb; --blue:#2f4f86; --done:#3d7a5a; --later:#b9832b; --miss:#a9473f;
   --marker:#fff1a8; --tab:#ebe4d4;
-  --f-display:"Gowun Batang",serif; --f-body:"Gowun Dodum",system-ui,sans-serif; --f-hand:"Nanum Pen Script",cursive;
+  --f-display:"Gowun Batang",serif; --f-body:"Gowun Dodum",system-ui,sans-serif;
   color-scheme:light;
 }
 @media (prefers-color-scheme:dark){:root{
@@ -106,16 +106,16 @@ details.memo[open] summary::after{content:"접기"}
 /* 감사일기 */
 .thanks{counter-reset:t}
 .thanks .row{counter-increment:t;padding-left:12px}
-.thanks .row::before{content:counter(t);font-family:var(--f-display);color:var(--blue);width:1em;flex-shrink:0;align-self:flex-start;padding-top:9px}
+.thanks .row::before{content:counter(t);font-family:var(--f-display);color:var(--blue);width:1em;flex-shrink:0;align-self:flex-start;padding-top:4px}
 textarea.grow{resize:none;overflow:hidden;display:block;white-space:pre-wrap;word-break:keep-all;overflow-wrap:anywhere}
 .add textarea{flex:1;min-width:0;border:0;background:transparent;color:var(--ink);font:inherit;line-height:1.5;padding:4px 0}
 .add textarea::placeholder{color:var(--ink-soft)}
 textarea.edit{line-height:1.5}
-.thanks .edit,#thxForm textarea{font-family:var(--f-hand);font-size:1.4rem;line-height:1.5}
+.thanks .edit,#thxForm textarea{font-family:var(--f-body);font-size:1rem;line-height:1.5}
 
 /* 기억할 것 */
 .lined{background-color:var(--sheet);background-image:repeating-linear-gradient(transparent 0 43px,var(--rule) 43px 44px);background-attachment:local}
-.rem .edit,#remForm textarea{font-family:var(--f-hand);font-size:1.4rem;line-height:1.5}
+.rem .edit,#remForm textarea{font-family:var(--f-body);font-size:1rem;line-height:1.5}
 .row.long .edit{flex-basis:100%}
 .row.long{padding-bottom:8px}
 .rem .row{padding-left:12px}
